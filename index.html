@@ -1,1 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlobalBank — Information Flow Floor Plan</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0e1a;
+            color: #e0e6f0;
+            overflow: hidden;
+            height: 100vh; width: 100vw;
+        }
+        .control-bar {
+            position: fixed; top: 0; left: 0; right: 0; height: 56px;
+            background: rgba(10,14,26,0.95); border-bottom: 1px solid #1a2a4a;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 20px; z-index: 1000; backdrop-filter: blur(12px);
+        }
+        .brand { display: flex; align-items: center; gap: 10px; font-size: 1.05em; font-weight: 600; color: #fff; }
+        .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: #00e5a0; box-shadow: 0 0 12px #00e5a0; animation: pulse-dot 2s infinite; }
+        @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+        .controls { display: flex; align-items: center; gap: 8px; }
+        .ctrl-btn { background: rgba(255,255,255,0.05); border: 1px solid #2a3a5a; color: #8a9ab0; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 0.82em; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+        .ctrl-btn:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: #4a6a9a; }
+        .ctrl-btn.active { background: rgba(0,229,160,0.12); border-color: #00e5a0; color: #00e5a0; }
+        .ctrl-btn.danger.active { background: rgba(255,80,80,0.12); border-color: #ff5050; color: #ff5050; }
+        #floorplan { position: fixed; top: 56px; left: 0; right: 0; bottom: 36px; overflow: hidden; cursor: grab; }
+        #floorplan.grabbing { cursor: grabbing; }
+        #world { position: absolute; transform-origin: 0 0; will-change: transform; }
+        .map-bg { position: absolute; top: 0; left: 0; width: 2400px; height: 1200px;
+            background: radial-gradient(ellipse at 30% 35%, rgba(0,100,200,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 60%, rgba(200,100,0,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(0,50,100,0.05) 0%, transparent 60%), #0d1320;
+        }
+        .grid-lines { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+        }
+        .continent { position: absolute; opacity: 0.06; pointer-events: none; background: #4a90d9; }
+        .continent-na { top: 180px; left: 280px; width: 520px; height: 380px; border-radius: 40% 60% 50% 40% / 50% 40% 60% 50%; }
+        .continent-sa { top: 520px; left: 420px; width: 200px; height: 340px; border-radius: 50% 40% 40% 50% / 40% 50% 50% 40%; }
+        .continent-eu { top: 160px; left: 980px; width: 280px; height: 200px; border-radius: 50% 40% 40% 50% / 40% 50% 50% 60%; }
+        .continent-af { top: 380px; left: 960px; width: 260px; height: 340px; border-radius: 45% 55% 50% 40% / 40% 50% 50% 60%; }
+        .continent-as { top: 140px; left: 1220px; width: 680px; height: 420px; border-radius: 40% 60% 50% 50% / 50% 40% 60% 50%; }
+        .continent-au { top: 640px; left: 1560px; width: 280px; height: 200px; border-radius: 50% 50% 40% 60% / 50% 50% 40% 60%; }
+        .hub { position: absolute; transform: translate(-50%,-50%); cursor: pointer; z-index: 10; transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+        .hub:hover { transform: translate(-50%,-50%) scale(1.15); }
+        .hub.offline { opacity: 0.4; filter: grayscale(1); }
+        .hub.offline .hub-ring { animation: none; border-color: #ff5050; }
+        .hub.offline .hub-core { background: #ff5050; box-shadow: 0 0 20px #ff5050; }
+        .hub-ring { width: 64px; height: 64px; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; position: relative; animation: ring-breathe 3s infinite ease-in-out; }
+        @keyframes ring-breathe { 0%,100%{transform:scale(1);opacity:0.8} 50%{transform:scale(1.08);opacity:1} }
+        .hub-core { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; position: relative; z-index: 2; }
+        .hub-pulse { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 64px; height: 64px; border-radius: 50%; border: 1px solid; opacity: 0; animation: hub-pulse 2.5s infinite; }
+        @keyframes hub-pulse { 0%{transform:translate(-50%,-50%) scale(0.8);opacity:0.6} 100%{transform:translate(-50%,-50%) scale(2.2);opacity:0} }
+        .hub-hq .hub-ring { border-color: #ff6b6b; background: rgba(255,107,107,0.08); }
+        .hub-hq .hub-core { background: #ff6b6b; box-shadow: 0 0 20px rgba(255,107,107,0.5); }
+        .hub-hq .hub-pulse { border-color: #ff6b6b; }
+        .hub-reg .hub-ring { border-color: #ffd93d; background: rgba(255,217,61,0.08); }
+        .hub-reg .hub-core { background: #ffd93d; box-shadow: 0 0 20px rgba(255,217,61,0.4); }
+        .hub-reg .hub-pulse { border-color: #ffd93d; }
+        .hub-branch .hub-ring { border-color: #6bcb77; background: rgba(107,203,119,0.08); }
+        .hub-branch .hub-core { background: #6bcb77; box-shadow: 0 0 20px rgba(107,203,119,0.4); }
+        .hub-branch .hub-pulse { border-color: #6bcb77; }
+        .hub-label { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 0.78em; font-weight: 500; color: #b0c0d8; text-align: center; text-shadow: 0 1px 8px rgba(0,0,0,0.8); pointer-events: none; }
+        .hub-label .hub-sub { font-size: 0.78em; color: #6a7a9a; margin-top: 2px; }
+        .hub-status { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #0a0e1a; z-index: 3; }
+        .hub-status.up { background: #00e5a0; }
+        .hub-status.warn { background: #ffd93d; }
+        .hub-status.down { background: #ff5050; }
+        .particle { position: absolute; width: 4px; height: 4px; border-radius: 50%; pointer-events: none; z-index: 5; will-change: transform; }
+        .particle.p-fast { background: #00e5a0; box-shadow: 0 0 6px #00e5a0; }
+        .particle.p-sec { background: #c77dff; box-shadow: 0 0 6px #c77dff; }
+        .particle.p-alert { background: #ff5050; box-shadow: 0 0 6px #ff5050; }
+        .connections-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .conn-line { fill: none; stroke-width: 1.5; opacity: 0.25; stroke-linecap: round; }
+        .conn-line.active { opacity: 0.6; stroke-width: 2; }
+        .conn-line.critical { stroke: #ff5050; opacity: 0.8; stroke-dasharray: 8 4; animation: dash-flow 1s linear infinite; }
+        @keyframes dash-flow { to { stroke-dashoffset: -24; } }
+        .heat-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 2; }
+        .heat-overlay.show { opacity: 1; }
+        .heat-blob { position: absolute; border-radius: 50%; filter: blur(40px); opacity: 0.35; animation: heat-pulse 4s infinite ease-in-out; }
+        @keyframes heat-pulse { 0%,100%{transform:scale(1);opacity:0.3} 50%{transform:scale(1.3);opacity:0.5} }
+        .side-panel { position: fixed; top: 56px; right: 0; width: 380px; height: calc(100vh - 56px); background: rgba(12,18,36,0.97); border-left: 1px solid #1a2a4a; transform: translateX(100%); transition: transform 0.35s cubic-bezier(0.16,1,0.3,1); z-index: 500; overflow-y: auto; backdrop-filter: blur(20px); }
+        .side-panel.open { transform: translateX(0); }
+        .panel-header { padding: 24px; border-bottom: 1px solid #1a2a4a; }
+        .panel-header h2 { font-size: 1.15em; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .panel-header .panel-sub { color: #6a7a9a; font-size: 0.85em; }
+        .panel-section { padding: 20px 24px; border-bottom: 1px solid #1a2a4a; }
+        .panel-section h3 { font-size: 0.7em; text-transform: uppercase; letter-spacing: 2px; color: #4a6a9a; margin-bottom: 14px; }
+        .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { font-size: 0.85em; color: #8a9ab0; }
+        .metric-value { font-size: 0.9em; font-weight: 600; color: #e0e6f0; }
+        .metric-value.good { color: #00e5a0; }
+        .metric-value.warn { color: #ffd93d; }
+        .metric-value.bad { color: #ff5050; }
+        .impact-bar { height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .impact-bar-fill { height: 100%; border-radius: 3px; transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
+        .dep-list { display: flex; flex-direction: column; gap: 8px; }
+        .dep-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 0.85em; border-left: 3px solid transparent; transition: all 0.2s; }
+        .dep-item:hover { background: rgba(255,255,255,0.06); }
+        .dep-item.critical { border-left-color: #ff5050; }
+        .dep-item.warn { border-left-color: #ffd93d; }
+        .dep-item.safe { border-left-color: #00e5a0; }
+        .dep-icon { font-size: 1.1em; }
+        .dep-name { flex: 1; }
+        .dep-status { font-size: 0.75em; padding: 2px 8px; border-radius: 4px; background: rgba(0,229,160,0.1); color: #00e5a0; }
+        .dep-status.warn { background: rgba(255,217,61,0.1); color: #ffd93d; }
+        .dep-status.down { background: rgba(255,80,80,0.1); color: #ff5050; }
+        .action-btn { width: 100%; padding: 12px; background: rgba(0,229,160,0.08); border: 1px solid rgba(0,229,160,0.25); color: #00e5a0; border-radius: 10px; cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s; margin-top: 8px; }
+        .action-btn:hover { background: rgba(0,229,160,0.15); }
+        .action-btn.danger { background: rgba(255,80,80,0.08); border-color: rgba(255,80,80,0.25); color: #ff5050; }
+        .action-btn.danger:hover { background: rgba(255,80,80,0.15); }
+        .status-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 36px; background: rgba(10,14,26,0.95); border-top: 1px solid #1a2a4a; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font-size: 0.78em; color: #6a7a9a; z-index: 1000; }
+        .status-left { display: flex; gap: 24px; }
+        .status-item { display: flex; align-items: center; gap: 6px; }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .status-dot.green { background: #00e5a0; }
+        .status-dot.yellow { background: #ffd93d; }
+        .status-dot.red { background: #ff5050; }
+        .tooltip { position: fixed; background: rgba(16,24,48,0.95); border: 1px solid #2a3a5a; border-radius: 10px; padding: 12px 16px; font-size: 0.82em; pointer-events: none; z-index: 2000; opacity: 0; transition: opacity 0.15s; max-width: 260px; backdrop-filter: blur(8px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+        .tooltip.show { opacity: 1; }
+        .tooltip h4 { color: #fff; margin-bottom: 6px; font-size: 0.95em; }
+        .tooltip p { color: #8a9ab0; line-height: 1.5; }
+        .tooltip .tooltip-metric { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .tooltip .tooltip-metric span:first-child { color: #6a7a9a; }
+        .tooltip .tooltip-metric span:last-child { color: #00e5a0; font-weight: 600; }
+        .scenario-banner { position: fixed; top: 56px; left: 50%; transform: translateX(-50%) translateY(-60px); background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.3); color: #ff8080; padding: 10px 24px; border-radius: 0 0 12px 12px; font-size: 0.85em; font-weight: 500; z-index: 900; transition: transform 0.4s cubic-bezier(0.16,1,0.3,1); backdrop-filter: blur(8px); }
+        .scenario-banner.show { transform: translateX(-50%) translateY(0); }
+        .minimap { position: fixed; bottom: 48px; right: 20px; width: 180px; height: 100px; background: rgba(10,14,26,0.9); border: 1px solid #1a2a4a; border-radius: 10px; z-index: 100; overflow: hidden; }
+        .minimap-viewport { position: absolute; border: 1px solid rgba(0,229,160,0.5); background: rgba(0,229,160,0.05); border-radius: 2px; pointer-events: none; }
+        .minimap-dot { position: absolute; width: 3px; height: 3px; border-radius: 50%; transform: translate(-50%,-50%); }
+        .minimap-dot.hq { background: #ff6b6b; }
+        .minimap-dot.reg { background: #ffd93d; }
+        .minimap-dot.branch { background: #6bcb77; }
+        @media (max-width: 900px) { .side-panel { width: 100%; } .minimap { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="control-bar">
+        <div class="brand"><div class="brand-dot"></div><span>GlobalBank — Information Flow Floor Plan</span></div>
+        <div class="controls">
+            <button class="ctrl-btn" id="btn-flow" onclick="toggleFlow()"><span>⚡</span> Flow</button>
+            <button class="ctrl-btn" id="btn-heat" onclick="toggleHeat()"><span>🔥</span> Heat</button>
+            <button class="ctrl-btn danger" id="btn-fail" onclick="toggleFailover()"><span>💥</span> Fail Frankfurt</button>
+            <button class="ctrl-btn" onclick="resetView()"><span>⟲</span> Reset</button>
+        </div>
+    </div>
+    <div class="scenario-banner" id="scenarioBanner">⚠️ SCENARIO ACTIVE: Frankfurt Hub offline — 4,200 branches rerouting via London</div>
+    <div id="floorplan">
+        <div id="world">
+            <div class="map-bg">
+                <div class="grid-lines"></div>
+                <div class="continent continent-na"></div>
+                <div class="continent continent-sa"></div>
+                <div class="continent continent-eu"></div>
+                <div class="continent continent-af"></div>
+                <div class="continent continent-as"></div>
+                <div class="continent continent-au"></div>
+            </div>
+            <svg class="connections-svg" id="connSvg" viewBox="0 0 2400 1200"></svg>
+            <div class="heat-overlay" id="heatOverlay"></div>
+            <!-- HQ -->
+            <div class="hub hub-hq" style="left:380px;top:280px;" data-id="hq" data-name="Global HQ" data-loc="New York">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🏛️</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>Global HQ</div><div class="hub-sub">New York</div></div>
+            </div>
+            <!-- Regionals -->
+            <div class="hub hub-reg" style="left:1080px;top:240px;" data-id="london" data-name="EMEA Hub" data-loc="London">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌍</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>EMEA Hub</div><div class="hub-sub">London</div></div>
+            </div>
+            <div class="hub hub-reg" style="left:1140px;top:320px;" data-id="frankfurt" data-name="EMEA Hub" data-loc="Frankfurt">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌍</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>EMEA Hub</div><div class="hub-sub">Frankfurt</div></div>
+            </div>
+            <div class="hub hub-reg" style="left:1680px;top:380px;" data-id="singapore" data-name="APAC Hub" data-loc="Singapore">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌏</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>APAC Hub</div><div class="hub-sub">Singapore</div></div>
+            </div>
+            <div class="hub hub-reg" style="left:1740px;top:300px;" data-id="hongkong" data-name="APAC Hub" data-loc="Hong Kong">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌏</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>APAC Hub</div><div class="hub-sub">Hong Kong</div></div>
+            </div>
+            <div class="hub hub-reg" style="left:1820px;top:680px;" data-id="sydney" data-name="APAC Hub" data-loc="Sydney">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌏</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>APAC Hub</div><div class="hub-sub">Sydney</div></div>
+            </div>
+            <div class="hub hub-reg" style="left:480px;top:560px;" data-id="saopaulo" data-name="Americas Hub" data-loc="São Paulo">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌎</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>Americas Hub</div><div class="hub-sub">São Paulo</div></div>
+            </div>
+            <div class="hub hub-reg" style="left:340px;top:180px;" data-id="toronto" data-name="Americas Hub" data-loc="Toronto">
+                <div class="hub-pulse"></div><div class="hub-ring"><div class="hub-core">🌎</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label"><div>Americas Hub</div><div class="hub-sub">Toronto</div></div>
+            </div>
+            <!-- Branches -->
+            <div class="hub hub-branch" style="left:1020px;top:380px;" data-id="paris" data-name="Paris Cluster" data-loc="France">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Paris</div><div class="hub-sub">1,240 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:1180px;top:400px;" data-id="berlin" data-name="Berlin Cluster" data-loc="Germany">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Berlin</div><div class="hub-sub">980 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:1100px;top:480px;" data-id="milan" data-name="Milan Cluster" data-loc="Italy">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Milan</div><div class="hub-sub">720 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:1580px;top:460px;" data-id="mumbai" data-name="Mumbai Cluster" data-loc="India">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:52px;height:52px;"><div class="hub-core" style="width:22px;height:22px;font-size:11px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:60px;"><div>Mumbai</div><div class="hub-sub">3,400 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:1720px;top:420px;" data-id="tokyo" data-name="Tokyo Cluster" data-loc="Japan">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Tokyo</div><div class="hub-sub">1,800 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:1620px;top:540px;" data-id="jakarta" data-name="Jakarta Cluster" data-loc="Indonesia">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Jakarta</div><div class="hub-sub">2,100 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:520px;top:320px;" data-id="miami" data-name="Miami Cluster" data-loc="USA">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Miami</div><div class="hub-sub">1,500 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:440px;top:420px;" data-id="mexico" data-name="Mexico City Cluster" data-loc="Mexico">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:48px;height:48px;"><div class="hub-core" style="width:20px;height:20px;font-size:10px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:56px;"><div>Mexico City</div><div class="hub-sub">890 branches</div></div>
+            </div>
+            <div class="hub hub-branch" style="left:560px;top:640px;" data-id="buenosaires" data-name="Buenos Aires Cluster" data-loc="Argentina">
+                <div class="hub-pulse"></div><div class="hub-ring" style="width:44px;height:44px;"><div class="hub-core" style="width:18px;height:18px;font-size:9px;">🏦</div></div>
+                <div class="hub-status up"></div>
+                <div class="hub-label" style="top:52px;"><div>Buenos Aires</div><div class="hub-sub">410 branches</div></div>
+            </div>
+        </div>
+    </div>
+    <div class="side-panel" id="sidePanel"><div id="panelContent"></div></div>
+    <div class="minimap" id="minimap"><div class="minimap-viewport" id="minimapViewport"></div></div>
+    <div class="tooltip" id="tooltip"></div>
+    <div class="status-bar">
+        <div class="status-left">
+            <div class="status-item"><div class="status-dot green"></div> 18 Hubs Online</div>
+            <div class="status-item"><div class="status-dot green"></div> 2.4M txns/min</div>
+            <div class="status-item"><div class="status-dot green"></div> 99.997% uptime</div>
+            <div class="status-item" id="failoverStatus" style="display:none"><div class="status-dot yellow"></div> Failover Active</div>
+        </div>
+        <div>Scroll to zoom · Drag to pan · Click hub for details</div>
+    </div>
 
+<script>
+// ─── STATE ───
+let scale = 0.65, panX = -300, panY = -80;
+let isDragging = false, dragStartX, dragStartY;
+let flowActive = false, heatActive = false, failoverActive = false;
+let selectedHub = null, particles = [], animFrame;
+
+const world = document.getElementById('world');
+const floorplan = document.getElementById('floorplan');
+const connSvg = document.getElementById('connSvg');
+const tooltip = document.getElementById('tooltip');
+const sidePanel = document.getElementById('sidePanel');
+const panelContent = document.getElementById('panelContent');
+const heatOverlay = document.getElementById('heatOverlay');
+const minimap = document.getElementById('minimap');
+const minimapViewport = document.getElementById('minimapViewport');
+const scenarioBanner = document.getElementById('scenarioBanner');
+const failoverStatus = document.getElementById('failoverStatus');
+
+const connections = [
+    { from: 'hq', to: 'london', type: 'primary', bw: '100G' },
+    { from: 'hq', to: 'frankfurt', type: 'primary', bw: '100G' },
+    { from: 'hq', to: 'singapore', type: 'primary', bw: '100G' },
+    { from: 'hq', to: 'hongkong', type: 'primary', bw: '100G' },
+    { from: 'hq', to: 'sydney', type: 'primary', bw: '40G' },
+    { from: 'hq', to: 'saopaulo', type: 'primary', bw: '40G' },
+    { from: 'hq', to: 'toronto', type: 'primary', bw: '100G' },
+    { from: 'london', to: 'frankfurt', type: 'failover', bw: '40G' },
+    { from: 'singapore', to: 'hongkong', type: 'failover', bw: '40G' },
+    { from: 'singapore', to: 'sydney', type: 'failover', bw: '20G' },
+    { from: 'toronto', to: 'saopaulo', type: 'failover', bw: '20G' },
+    { from: 'london', to: 'paris', type: 'local', bw: '10G' },
+    { from: 'frankfurt', to: 'berlin', type: 'local', bw: '10G' },
+    { from: 'frankfurt', to: 'milan', type: 'local', bw: '10G' },
+    { from: 'singapore', to: 'mumbai', type: 'local', bw: '10G' },
+    { from: 'hongkong', to: 'tokyo', type: 'local', bw: '10G' },
+    { from: 'singapore', to: 'jakarta', type: 'local', bw: '10G' },
+    { from: 'toronto', to: 'miami', type: 'local', bw: '10G' },
+    { from: 'saopaulo', to: 'buenosaires', type: 'local', bw: '5G' },
+    { from: 'toronto', to: 'mexico', type: 'local', bw: '5G' },
+    { from: 'london', to: 'mumbai', type: 'cross', bw: '5G' },
+];
+
+const hubData = {
+    hq: {
+        title: 'Global HQ', subtitle: 'New York, USA — Tier-1 Critical',
+        metrics: [
+            { label: 'Transactions/min', value: '2.4M', status: 'good' },
+            { label: 'Uptime', value: '99.997%', status: 'good' },
+            { label: 'Latency to London', value: '72ms', status: 'good' },
+            { label: 'Latency to Singapore', value: '186ms', status: 'warn' },
+            { label: 'Active Alerts', value: '3', status: 'warn' },
+        ],
+        deps: [
+            { name: 'London Hub', icon: '🌍', status: 'up', type: 'safe' },
+            { name: 'Frankfurt Hub', icon: '🌍', status: 'up', type: 'safe' },
+            { name: 'Singapore Hub', icon: '🌏', status: 'up', type: 'safe' },
+            { name: 'Hong Kong Hub', icon: '🌏', status: 'up', type: 'safe' },
+            { name: 'Sydney Hub', icon: '🌏', status: 'up', type: 'safe' },
+            { name: 'São Paulo Hub', icon: '🌎', status: 'up', type: 'safe' },
+            { name: 'Toronto Hub', icon: '🌎', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Global operations halt. All regional hubs enter autonomous mode with degraded cross-border capabilities.', level: 100, color: '#ff5050' },
+        actions: ['View incident history', 'Run disaster recovery drill', 'Schedule maintenance window']
+    },
+    london: {
+        title: 'EMEA Hub — London', subtitle: 'Serving 42 countries · 12,400 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '680K', status: 'good' },
+            { label: 'Uptime', value: '99.99%', status: 'good' },
+            { label: 'Latency to HQ', value: '72ms', status: 'good' },
+            { label: 'Latency to Frankfurt', value: '18ms', status: 'good' },
+            { label: 'Branches dependent', value: '6,200', status: 'good' },
+        ],
+        deps: [
+            { name: 'Paris Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Frankfurt Hub', icon: '🌍', status: 'up', type: 'safe' },
+            { name: 'Milan Cluster', icon: '🏦', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Paris & Milan reroute to Frankfurt. SEPA Instant payments delayed by ~40ms. 6,200 branches affected.', level: 65, color: '#ffd93d' },
+        actions: ['View failover log', 'Check London-Frankfurt link', 'Alert EMEA ops team']
+    },
+    frankfurt: {
+        title: 'EMEA Hub — Frankfurt', subtitle: 'Serving 42 countries · 12,400 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '540K', status: 'good' },
+            { label: 'Uptime', value: '99.99%', status: 'good' },
+            { label: 'Latency to HQ', value: '88ms', status: 'good' },
+            { label: 'Latency to London', value: '18ms', status: 'good' },
+            { label: 'Branches dependent', value: '4,200', status: 'good' },
+        ],
+        deps: [
+            { name: 'Berlin Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Milan Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'London Hub', icon: '🌍', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Berlin & Milan reroute to London. TARGET2 settlement at risk. 4,200 branches affected.', level: 55, color: '#ffd93d' },
+        actions: ['View failover log', 'Check Frankfurt-London link', 'Alert EMEA ops team']
+    },
+    singapore: {
+        title: 'APAC Hub — Singapore', subtitle: 'Serving 28 countries · 18,600 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '920K', status: 'good' },
+            { label: 'Uptime', value: '99.99%', status: 'good' },
+            { label: 'Latency to HQ', value: '186ms', status: 'warn' },
+            { label: 'Latency to Hong Kong', value: '32ms', status: 'good' },
+            { label: 'Branches dependent', value: '8,400', status: 'good' },
+        ],
+        deps: [
+            { name: 'Mumbai Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Jakarta Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Hong Kong Hub', icon: '🌏', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Mumbai & Jakarta reroute to Hong Kong. PAYNOW and FAST payments disrupted. 8,400 branches affected.', level: 70, color: '#ffd93d' },
+        actions: ['View failover log', 'Check Singapore-HK link', 'Alert APAC ops team']
+    },
+    hongkong: {
+        title: 'APAC Hub — Hong Kong', subtitle: 'Serving 28 countries · 18,600 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '410K', status: 'good' },
+            { label: 'Uptime', value: '99.99%', status: 'good' },
+            { label: 'Latency to HQ', value: '198ms', status: 'warn' },
+            { label: 'Latency to Singapore', value: '32ms', status: 'good' },
+            { label: 'Branches dependent', value: '5,200', status: 'good' },
+        ],
+        deps: [
+            { name: 'Tokyo Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Singapore Hub', icon: '🌏', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Tokyo reroutes to Singapore. CNH clearing disrupted. 5,200 branches affected.', level: 50, color: '#ffd93d' },
+        actions: ['View failover log', 'Check HK-Singapore link', 'Alert APAC ops team']
+    },
+    sydney: {
+        title: 'APAC Hub — Sydney', subtitle: 'Serving 28 countries · 18,600 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '180K', status: 'good' },
+            { label: 'Uptime', value: '99.99%', status: 'good' },
+            { label: 'Latency to HQ', value: '224ms', status: 'warn' },
+            { label: 'Latency to Singapore', value: '94ms', status: 'warn' },
+            { label: 'Branches dependent', value: '2,100', status: 'good' },
+        ],
+        deps: [
+            { name: 'Singapore Hub', icon: '🌏', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'All Australia/NZ traffic reroutes to Singapore. NPP payments disrupted. 2,100 branches affected.', level: 35, color: '#6bcb77' },
+        actions: ['View failover log', 'Check Sydney-Singapore link', 'Alert APAC ops team']
+    },
+    saopaulo: {
+        title: 'Americas Hub — São Paulo', subtitle: 'Serving 35 countries · 9,800 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '320K', status: 'good' },
+            { label: 'Uptime', value: '99.98%', status: 'good' },
+            { label: 'Latency to HQ', value: '142ms', status: 'warn' },
+            { label: 'Latency to Toronto', value: '128ms', status: 'warn' },
+            { label: 'Branches dependent', value: '3,800', status: 'good' },
+        ],
+        deps: [
+            { name: 'Buenos Aires Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Toronto Hub', icon: '🌎', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Buenos Aires reroutes to Toronto. PIX instant payments disrupted. 3,800 branches affected.', level: 45, color: '#ffd93d' },
+        actions: ['View failover log', 'Check São Paulo-Toronto link', 'Alert Americas ops team']
+    },
+    toronto: {
+        title: 'Americas Hub — Toronto', subtitle: 'Serving 35 countries · 9,800 branches',
+        metrics: [
+            { label: 'Transactions/min', value: '280K', status: 'good' },
+            { label: 'Uptime', value: '99.99%', status: 'good' },
+            { label: 'Latency to HQ', value: '28ms', status: 'good' },
+            { label: 'Latency to São Paulo', value: '128ms', status: 'warn' },
+            { label: 'Branches dependent', value: '4,200', status: 'good' },
+        ],
+        deps: [
+            { name: 'Miami Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'Mexico City Cluster', icon: '🏦', status: 'up', type: 'safe' },
+            { name: 'São Paulo Hub', icon: '🌎', status: 'up', type: 'safe' },
+        ],
+        impact: { text: 'Miami & Mexico City reroute to São Paulo. Interac network disrupted. 4,200 branches affected.', level: 55, color: '#ffd93d' },
+        actions: ['View failover log', 'Check Toronto-São Paulo link', 'Alert Americas ops team']
+    },
+    paris: {
+        title: 'Paris Branch Cluster', subtitle: '1,240 branches · Northern & Western Europe',
+        metrics: [
+            { label: 'Active transactions', value: '48K/min', status: 'good' },
+            { label: 'Uptime', value: '99.95%', status: 'good' },
+            { label: 'Parent hub', value: 'London', status: 'good' },
+            { label: 'Failover hub', value: 'Frankfurt', status: 'good' },
+            { label: 'Customer impact if down', value: '3.1M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'London Hub', icon: '🌍', status: 'up', type: 'critical' },
+            { name: 'Frankfurt Hub', icon: '🌍', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '1,240 branches switch to offline mode. SEPA payments queue for London processing. 3.1M customers affected.', level: 40, color: '#6bcb77' },
+        actions: ['View branch status', 'Check London link health', 'Alert regional manager']
+    },
+    berlin: {
+        title: 'Berlin Branch Cluster', subtitle: '980 branches · Central Europe',
+        metrics: [
+            { label: 'Active transactions', value: '36K/min', status: 'good' },
+            { label: 'Uptime', value: '99.96%', status: 'good' },
+            { label: 'Parent hub', value: 'Frankfurt', status: 'good' },
+            { label: 'Failover hub', value: 'London', status: 'good' },
+            { label: 'Customer impact if down', value: '2.4M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Frankfurt Hub', icon: '🌍', status: 'up', type: 'critical' },
+            { name: 'London Hub', icon: '🌍', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '980 branches queue transactions. TARGET2 settlement at risk. 2.4M customers affected.', level: 35, color: '#6bcb77' },
+        actions: ['View branch status', 'Check Frankfurt link health', 'Alert regional manager']
+    },
+    milan: {
+        title: 'Milan Branch Cluster', subtitle: '720 branches · Southern Europe',
+        metrics: [
+            { label: 'Active transactions', value: '28K/min', status: 'good' },
+            { label: 'Uptime', value: '99.94%', status: 'good' },
+            { label: 'Parent hub', value: 'Frankfurt', status: 'good' },
+            { label: 'Failover hub', value: 'London', status: 'good' },
+            { label: 'Customer impact if down', value: '1.8M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Frankfurt Hub', icon: '🌍', status: 'up', type: 'critical' },
+            { name: 'London Hub', icon: '🌍', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '720 branches affected. Italian instant payments delayed. 1.8M customers affected.', level: 30, color: '#6bcb77' },
+        actions: ['View branch status', 'Check Frankfurt link health', 'Alert regional manager']
+    },
+    mumbai: {
+        title: 'Mumbai Branch Cluster', subtitle: '3,400 branches · India Subcontinent',
+        metrics: [
+            { label: 'Active transactions', value: '156K/min', status: 'good' },
+            { label: 'Uptime', value: '99.92%', status: 'good' },
+            { label: 'Parent hub', value: 'Singapore', status: 'good' },
+            { label: 'Failover hub', value: 'Hong Kong', status: 'good' },
+            { label: 'Customer impact if down', value: '8.2M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Singapore Hub', icon: '🌏', status: 'up', type: 'critical' },
+            { name: 'Hong Kong Hub', icon: '🌏', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '3,400 branches queue UPI & NEFT transactions. 8.2M customers affected — largest single cluster.', level: 75, color: '#ff5050' },
+        actions: ['View branch status', 'Check Singapore link health', 'Alert regional manager']
+    },
+    tokyo: {
+        title: 'Tokyo Branch Cluster', subtitle: '1,800 branches · Japan & Korea',
+        metrics: [
+            { label: 'Active transactions', value: '72K/min', status: 'good' },
+            { label: 'Uptime', value: '99.97%', status: 'good' },
+            { label: 'Parent hub', value: 'Hong Kong', status: 'good' },
+            { label: 'Failover hub', value: 'Singapore', status: 'good' },
+            { label: 'Customer impact if down', value: '4.1M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Hong Kong Hub', icon: '🌏', status: 'up', type: 'critical' },
+            { name: 'Singapore Hub', icon: '🌏', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '1,800 branches affected. Zengin-Net and BOJ-NET settlements at risk. 4.1M customers affected.', level: 50, color: '#ffd93d' },
+        actions: ['View branch status', 'Check HK link health', 'Alert regional manager']
+    },
+    jakarta: {
+        title: 'Jakarta Branch Cluster', subtitle: '2,100 branches · Southeast Asia',
+        metrics: [
+            { label: 'Active transactions', value: '58K/min', status: 'good' },
+            { label: 'Uptime', value: '99.93%', status: 'good' },
+            { label: 'Parent hub', value: 'Singapore', status: 'good' },
+            { label: 'Failover hub', value: 'Hong Kong', status: 'good' },
+            { label: 'Customer impact if down', value: '3.6M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Singapore Hub', icon: '🌏', status: 'up', type: 'critical' },
+            { name: 'Hong Kong Hub', icon: '🌏', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '2,100 branches affected. BI-FAST payments disrupted. 3.6M customers affected.', level: 45, color: '#ffd93d' },
+        actions: ['View branch status', 'Check Singapore link health', 'Alert regional manager']
+    },
+    miami: {
+        title: 'Miami Branch Cluster', subtitle: '1,500 branches · US Southeast & Caribbean',
+        metrics: [
+            { label: 'Active transactions', value: '42K/min', status: 'good' },
+            { label: 'Uptime', value: '99.95%', status: 'good' },
+            { label: 'Parent hub', value: 'Toronto', status: 'good' },
+            { label: 'Failover hub', value: 'São Paulo', status: 'good' },
+            { label: 'Customer impact if down', value: '2.8M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Toronto Hub', icon: '🌎', status: 'up', type: 'critical' },
+            { name: 'São Paulo Hub', icon: '🌎', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '1,500 branches affected. FedWire and Zelle payments delayed. 2.8M customers affected.', level: 40, color: '#6bcb77' },
+        actions: ['View branch status', 'Check Toronto link health', 'Alert regional manager']
+    },
+    mexico: {
+        title: 'Mexico City Branch Cluster', subtitle: '890 branches · Mexico & Central America',
+        metrics: [
+            { label: 'Active transactions', value: '24K/min', status: 'good' },
+            { label: 'Uptime', value: '99.94%', status: 'good' },
+            { label: 'Parent hub', value: 'Toronto', status: 'good' },
+            { label: 'Failover hub', value: 'São Paulo', status: 'good' },
+            { label: 'Customer impact if down', value: '1.6M', status: 'warn' },
+        ],
+        deps: [
+            { name: 'Toronto Hub', icon: '🌎', status: 'up', type: 'critical' },
+            { name: 'São Paulo Hub', icon: '🌎', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '890 branches affected. SPEI instant payments disrupted. 1.6M customers affected.', level: 30, color: '#6bcb77' },
+        actions: ['View branch status', 'Check Toronto link health', 'Alert regional manager']
+    },
+    buenosaires: {
+        title: 'Buenos Aires Branch Cluster', subtitle: '410 branches · Argentina, Uruguay, Paraguay',
+        metrics: [
+            { label: 'Active transactions', value: '12K/min', status: 'good' },
+            { label: 'Uptime', value: '99.91%', status: 'good' },
+            { label: 'Parent hub', value: 'São Paulo', status: 'good' },
+            { label: 'Failover hub', value: 'Toronto', status: 'good' },
+            { label: 'Customer impact if down', value: '890K', status: 'warn' },
+        ],
+        deps: [
+            { name: 'São Paulo Hub', icon: '🌎', status: 'up', type: 'critical' },
+            { name: 'Toronto Hub', icon: '🌎', status: 'up', type: 'warn' },
+        ],
+        impact: { text: '410 branches affected. Mercado Pago and local transfers disrupted. 890K customers affected.', level: 20, color: '#6bcb77' },
+        actions: ['View branch status', 'Check São Paulo link health', 'Alert regional manager']
+    },
+};
+
+// ─── DRAW CONNECTIONS ───
+function drawConnections() {
+    connSvg.innerHTML = '';
+    const hubs = document.querySelectorAll('.hub');
+    const hubPos = {};
+    hubs.forEach(h => { hubPos[h.dataset.id] = { x: parseFloat(h.style.left), y: parseFloat(h.style.top) }; });
+    connections.forEach(conn => {
+        const from = hubPos[conn.from], to = hubPos[conn.to];
+        if (!from || !to) return;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2 - 40;
+        line.setAttribute('d', `M ${from.x} ${from.y} Q ${midX} ${midY} ${to.x} ${to.y}`);
+        let cls = 'conn-line', stroke = '#4a90d9';
+        if (conn.type === 'failover') { stroke = '#ff6b6b'; }
+        else if (conn.type === 'primary') { cls += ' active'; stroke = '#00e5a0'; }
+        else if (conn.type === 'local') { cls += ' active'; stroke = '#4a90d9'; }
+        else { cls += ' active'; stroke = '#c77dff'; }
+        if (failoverActive && conn.from === 'frankfurt') { cls += ' critical'; stroke = '#ff5050'; }
+        line.setAttribute('class', cls);
+        line.setAttribute('stroke', stroke);
+        line.dataset.from = conn.from; line.dataset.to = conn.to;
+        connSvg.appendChild(line);
+    });
+}
+
+// ─── PARTICLES ───
+function spawnParticle() {
+    if (!flowActive) return;
+    const activeConns = connections.filter(c => {
+        if (failoverActive && c.from === 'frankfurt') return false;
+        return c.type !== 'failover' || failoverActive;
+    });
+    if (activeConns.length === 0) return;
+    const conn = activeConns[Math.floor(Math.random() * activeConns.length)];
+    const fromHub = document.querySelector(`.hub[data-id="${conn.from}"]`);
+    const toHub = document.querySelector(`.hub[data-id="${conn.to}"]`);
+    if (!fromHub || !toHub) return;
+    const fx = parseFloat(fromHub.style.left), fy = parseFloat(fromHub.style.top);
+    const tx = parseFloat(toHub.style.left), ty = parseFloat(toHub.style.top);
+    const p = document.createElement('div');
+    p.className = 'particle';
+    if (conn.type === 'failover') p.classList.add('p-alert');
+    else if (conn.type === 'cross') p.classList.add('p-sec');
+    else p.classList.add('p-fast');
+    world.appendChild(p);
+    let t = 0;
+    const speed = 0.003 + Math.random() * 0.004;
+    const midX = (fx + tx) / 2, midY = (fy + ty) / 2 - 40;
+    function step() {
+        t += speed;
+        if (t >= 1) { p.remove(); return; }
+        const mt = 1 - t;
+        const x = mt * mt * fx + 2 * mt * t * midX + t * t * tx;
+        const y = mt * mt * fy + 2 * mt * t * midY + t * t * ty;
+        p.style.left = x + 'px'; p.style.top = y + 'px';
+        requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+function particleLoop() {
+    if (flowActive) {
+        for (let i = 0; i < 3; i++) spawnParticle();
+    }
+    animFrame = requestAnimationFrame(particleLoop);
+}
+
+// ─── HEATMAP ───
+function buildHeatmap() {
+    heatOverlay.innerHTML = '';
+    const heatData = [
+        { x: 380, y: 280, r: 180, color: 'rgba(255,107,107,0.4)' },
+        { x: 1080, y: 240, r: 140, color: 'rgba(255,217,61,0.35)' },
+        { x: 1140, y: 320, r: 140, color: 'rgba(255,217,61,0.35)' },
+        { x: 1680, y: 380, r: 160, color: 'rgba(255,217,61,0.35)' },
+        { x: 1740, y: 300, r: 140, color: 'rgba(255,217,61,0.35)' },
+        { x: 1820, y: 680, r: 100, color: 'rgba(255,217,61,0.3)' },
+        { x: 480, y: 560, r: 120, color: 'rgba(255,217,61,0.3)' },
+        { x: 340, y: 180, r: 140, color: 'rgba(255,217,61,0.35)' },
+        { x: 1580, y: 460, r: 100, color: 'rgba(107,203,119,0.3)' },
+        { x: 1020, y: 380, r: 80, color: 'rgba(107,203,119,0.25)' },
+    ];
+    heatData.forEach(h => {
+        const blob = document.createElement('div');
+        blob.className = 'heat-blob';
+        blob.style.left = (h.x - h.r) + 'px';
+        blob.style.top = (h.y - h.r) + 'px';
+        blob.style.width = (h.r * 2) + 'px';
+        blob.style.height = (h.r * 2) + 'px';
+        blob.style.background = h.color;
+        heatOverlay.appendChild(blob);
+    });
+}
+
+// ─── MINIMAP ───
+function updateMinimap() {
+    const mw = 180, mh = 100;
+    const vw = 2400, vh = 1200;
+    const vpW = mw * (window.innerWidth / (vw * scale));
+    const vpH = mh * ((window.innerHeight - 92) / (vh * scale));
+    const vpX = mw * (-panX / (vw * scale));
+    const vpY = mh * (-panY / (vh * scale));
+    minimapViewport.style.width = Math.min(vpW, mw) + 'px';
+    minimapViewport.style.height = Math.min(vpH, mh) + 'px';
+    minimapViewport.style.left = Math.max(0, Math.min(vpX, mw - vpW)) + 'px';
+    minimapViewport.style.top = Math.max(0, Math.min(vpY, mh - vpH)) + 'px';
+}
+
+function buildMinimap() {
+    document.querySelectorAll('.minimap-dot').forEach(d => d.remove());
+    document.querySelectorAll('.hub').forEach(h => {
+        const dot = document.createElement('div');
+        dot.className = 'minimap-dot' + (h.classList.contains('hub-hq') ? ' hq' : h.classList.contains('hub-reg') ? ' reg' : ' branch');
+        dot.style.left = (parseFloat(h.style.left) / 2400 * 100) + '%';
+        dot.style.top = (parseFloat(h.style.top) / 1200 * 100) + '%';
+        minimap.appendChild(dot);
+    });
+}
+
+// ─── TRANSFORM ───
+function applyTransform() {
+    world.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    updateMinimap();
+}
+
+// ─── PAN / ZOOM ───
+floorplan.addEventListener('mousedown', e => {
+    isDragging = true; dragStartX = e.clientX - panX; dragStartY = e.clientY - panY;
+    floorplan.classList.add('grabbing');
+});
+document.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    panX = e.clientX - dragStartX; panY = e.clientY - dragStartY;
+    applyTransform();
+});
+document.addEventListener('mouseup', () => { isDragging = false; floorplan.classList.remove('grabbing'); });
+floorplan.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const rect = floorplan.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const wx = (mx - panX) / scale, wy = (my - panY) / scale;
+    scale = Math.max(0.2, Math.min(3, scale * delta));
+    panX = mx - wx * scale; panY = my - wy * scale;
+    applyTransform();
+}, { passive: false });
+
+// ─── TOOLTIP ───
+document.querySelectorAll('.hub').forEach(hub => {
+    hub.addEventListener('mouseenter', e => {
+        const id = hub.dataset.id;
+        const data = hubData[id];
+        if (!data) return;
+        tooltip.innerHTML = `<h4>${data.title}</h4><p>${data.subtitle}</p><div class="tooltip-metric"><span>Impact if offline</span><span>${data.impact.level}% severity</span></div>`;
+        tooltip.classList.add('show');
+    });
+    hub.addEventListener('mousemove', e => {
+        tooltip.style.left = (e.clientX + 16) + 'px';
+        tooltip.style.top = (e.clientY + 16) + 'px';
+    });
+    hub.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+    hub.addEventListener('click', e => {
+        e.stopPropagation();
+        openPanel(hub.dataset.id);
+    });
+});
+
+// ─── SIDE PANEL ───
+function openPanel(id) {
+    selectedHub = id;
+    const data = hubData[id];
+    if (!data) return;
+    let html = `<div class="panel-header"><h2>${data.title}</h2><div class="panel-sub">${data.subtitle}</div></div>`;
+    html += `<div class="panel-section"><h3>📊 Live Metrics</h3>`;
+    data.metrics.forEach(m => {
+        html += `<div class="metric-row"><span class="metric-label">${m.label}</span><span class="metric-value ${m.status}">${m.value}</span></div>`;
+    });
+    html += `</div>`;
+    html += `<div class="panel-section"><h3>🔗 Dependencies</h3><div class="dep-list">`;
+    data.deps.forEach(d => {
+        const statusClass = d.status === 'up' ? '' : d.status === 'warn' ? 'warn' : 'down';
+        html += `<div class="dep-item ${d.type}"><span class="dep-icon">${d.icon}</span><span class="dep-name">${d.name}</span><span class="dep-status ${statusClass}">${d.status.toUpperCase()}</span></div>`;
+    });
+    html += `</div></div>`;
+    html += `<div class="panel-section"><h3>⚠️ Impact Assessment</h3><p style="color:#8a9ab0;font-size:0.9em;line-height:1.6;margin-bottom:12px">${data.impact.text}</p><div class="impact-bar"><div class="impact-bar-fill" style="width:0%;background:${data.impact.color}"></div></div></div>`;
+    html += `<div class="panel-section"><h3>🔧 Actions</h3>`;
+    data.actions.forEach((a, i) => {
+        html += `<button class="action-btn ${i === 0 && data.impact.level > 50 ? 'danger' : ''}">${a}</button>`;
+    });
+    html += `</div>`;
+    panelContent.innerHTML = html;
+    sidePanel.classList.add('open');
+    setTimeout(() => {
+        const fill = panelContent.querySelector('.impact-bar-fill');
+        if (fill) fill.style.width = data.impact.level + '%';
+    }, 100);
+}
+
+function closePanel() { sidePanel.classList.remove('open'); selectedHub = null; }
+document.addEventListener('click', e => { if (sidePanel.classList.contains('open') && !sidePanel.contains(e.target) && !e.target.closest('.hub')) closePanel(); });
+
+// ─── CONTROLS ───
+function toggleFlow() {
+    flowActive = !flowActive;
+    document.getElementById('btn-flow').classList.toggle('active', flowActive);
+}
+
+function toggleHeat() {
+    heatActive = !heatActive;
+    document.getElementById('btn-heat').classList.toggle('active', heatActive);
+    heatOverlay.classList.toggle('show', heatActive);
+}
+
+function toggleFailover() {
+    failoverActive = !failoverActive;
+    document.getElementById('btn-fail').classList.toggle('active', failoverActive);
+    scenarioBanner.classList.toggle('show', failoverActive);
+    failoverStatus.style.display = failoverActive ? 'flex' : 'none';
+    const frankfurt = document.querySelector('.hub[data-id="frankfurt"]');
+    if (frankfurt) frankfurt.classList.toggle('offline', failoverActive);
+    drawConnections();
+    // Update dependent nodes
+    ['berlin', 'milan'].forEach(id => {
+        const hub = document.querySelector(`.hub[data-id="${id}"]`);
+        if (hub) {
+            const status = hub.querySelector('.hub-status');
+            if (status) status.className = 'hub-status ' + (failoverActive ? 'warn' : 'up');
+        }
+    });
+}
+
+function resetView() {
+    scale = 0.65; panX = -300; panY = -80;
+    applyTransform();
+    if (failoverActive) toggleFailover();
+    if (flowActive) toggleFlow();
+    if (heatActive) toggleHeat();
+    closePanel();
+}
+
+// ─── INIT ───
+drawConnections();
+buildHeatmap();
+buildMinimap();
+applyTransform();
+particleLoop();
+</script>
+</body>
+</html>
