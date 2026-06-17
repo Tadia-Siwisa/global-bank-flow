@@ -270,7 +270,7 @@
 
 <script>
 // ─── STATE ───
-let scale = 0.65, panX = -300, panY = -80;
+let scale = 0.82, panX = 0, panY = 0;
 let isDragging = false, dragStartX, dragStartY;
 let flowActive = false, heatActive = false, failoverActive = false;
 let selectedHub = null, particles = [], animFrame;
@@ -826,8 +826,7 @@ function toggleFailover() {
 }
 
 function resetView() {
-    scale = 0.65; panX = -300; panY = -80;
-    applyTransform();
+    centerMap();
     if (failoverActive) toggleFailover();
     if (flowActive) toggleFlow();
     if (heatActive) toggleHeat();
@@ -835,11 +834,23 @@ function resetView() {
 }
 
 // ─── INIT ───
+function centerMap() {
+    const fpW = floorplan.clientWidth || window.innerWidth;
+    const fpH = floorplan.clientHeight || (window.innerHeight - 92);
+    const worldW = 2400, worldH = 1200;
+    // Fit to width with some padding
+    scale = Math.min((fpW - 40) / worldW, (fpH - 40) / worldH);
+    scale = Math.max(0.5, Math.min(1.2, scale));
+    panX = (fpW - worldW * scale) / 2;
+    panY = (fpH - worldH * scale) / 2;
+    applyTransform();
+}
 drawConnections();
 buildHeatmap();
 buildMinimap();
-applyTransform();
+centerMap();
 particleLoop();
+window.addEventListener('resize', centerMap);
 </script>
 </body>
 </html>
